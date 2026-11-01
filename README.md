@@ -1,115 +1,114 @@
-# 🤖 AI Chatbot Starter Kit
+# fastapi-ai-mcp
 
-A FastAPI-based starter kit for building AI-powered chatbots with OpenAI (or similar) integration, streaming responses, and database persistence. This project provides a robust and scalable foundation for chatbot development, including optional tool calls via the MCP protocol.
+A Python/FastAPI starter kit for AI assistants with streaming responses,
+PostgreSQL persistence, and optional MCP tools over stdio.
 
----
+The API manages assistants, chats, and messages. SQLModel and Alembic handle
+storage and migrations; services and repositories are assembled with
+`dependency-injector`. The current LLM integration uses OpenAI Chat Completions.
 
-## 🚀 Overview
+## Quick start
 
-### 🔹 Key Features:
+Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and PostgreSQL.
+Run the following commands from the repository root.
 
-✅ **FastAPI-powered REST API** for managing Assistants, Chats, and Messages.  
-✅ **PostgreSQL database** integration with SQLModel & Alembic for persistence.  
-✅ **Layered architecture** separating repositories (data access) from services (business logic).  
-✅ **Seamless OpenAI integration** for chat completions and real-time streaming responses.  
-✅ **MCP protocol support** to enable external tool calls within conversations.  
+```bash
+git clone https://github.com/Mg30/fastapi-ai-mcp.git
+cd fastapi-ai-mcp
+uv sync --frozen
+```
 
----
+Create a local `.env` file (already excluded by `.gitignore`):
 
-## 🛠️ Core Features
-
-### 🎯 Assistant Management
-Effortlessly create, retrieve, and list AI chat assistants with specific configurations tailored to your needs.
-
-### 💬 Chat Management
-Start new chat sessions, retrieve past conversations, and handle streaming responses from the LLM.
-
-### 🧠 LLM Integration
-Leverage OpenAI (or other compatible LLM services) to power your chatbot with high-quality, context-aware responses.
-
-### 🛎️ Tool Integration via MCP
-Extend your chatbot's functionality by integrating external tools that can be invoked dynamically during interactions.
-
-### 📦 Database Management
-Store and manage chat data, messages, summaries, and assistant configurations using PostgreSQL.
-
----
-
-## ⚙️ Configuration
-
-This project uses `pydantic_settings` for managing configurations, loaded via environment variables from a `.env` file.
-
-### 🔑 Required Environment Variables:
-
-```ini
-OPENAI_API_KEY=sk-xxxxxx
-MCP_SERVER_COMMAND=uv
-MCP_SERVER_ARGS=["run","mcp.servers.example.py"]  
-POSTGRES_USER=myuser
-POSTGRES_PASSWORD=mysecretpassword
+```dotenv
+OPENAI_API_KEY=replace-with-your-key
+POSTGRES_USER=assistant
+POSTGRES_PASSWORD=local-development-only
 POSTGRES_HOST=localhost
-POSTGRES_DB=mydb
+POSTGRES_DB=assistant
 POSTGRES_PORT=5432
 ```
 
-These variables are automatically wired at startup using `Container` in `container.py`.
+`Settings` reads these values from `.env` or environment variables. Use the
+credentials for your own PostgreSQL instance, or start a disposable local one:
 
----
+```bash
+docker run --detach --name fastapi-ai-mcp-db \
+  --publish 127.0.0.1:5432:5432 \
+  --env POSTGRES_USER=assistant \
+  --env POSTGRES_PASSWORD=local-development-only \
+  --env POSTGRES_DB=assistant \
+  postgres:17
 
-## 🚀 Getting Started
-
-1️⃣ **Clone the repository**
-```sh
-git clone https://github.com/your-repo/ai-chatbot-starter-kit.git
-cd ai-chatbot-starter-kit
+docker exec fastapi-ai-mcp-db pg_isready -U assistant -d assistant
 ```
 
-2️⃣ **Create a virtual environment & install dependencies**
-```sh
-uv sync
+Wait until PostgreSQL reports that it is accepting connections, then migrate and
+start the API:
+
+```bash
+uv run alembic upgrade head
+uv run uvicorn src.api.main:app --reload --host 127.0.0.1
 ```
 
-3️⃣ **Set up environment variables**
-Create a `.env` file in the project root and configure it as shown above.
+Open [Swagger UI](http://localhost:8000/docs) or
+[ReDoc](http://localhost:8000/redoc).
 
+### First conversation
 
-4️⃣ **Run database migrations**
-First you need to spin up the database
-```sh
-docker compose up
+Use Swagger UI to:
+
+1. Create an assistant with `POST /assistants/`, supplying `name`, `description`,
+   `system_prompt`, and an available `model`. Set `mcp_command` and `mcp_args` to
+   `null` to start without tools.
+2. Create a chat with `POST /chats/`, supplying a `title`, an ISO-formatted
+   `created_at`, and the returned `assistant_id`.
+3. Send a message to `POST /chats/{chat_id}/completions` with `role: "user"`,
+   `content`, and an ISO-formatted `date`. The endpoint streams plain text.
+
+The completion path saves the incoming user message. It does not automatically
+save the generated assistant response; persist that response through
+`POST /chats/{chat_id}/message` if it should appear in later conversation history.
+LLM requests require a valid provider key and may incur usage charges.
+
+## MCP tools
+
+MCP configuration belongs to each assistant record, through `mcp_command` and
+`mcp_args`; it is not read from `MCP_SERVER_COMMAND` or `MCP_SERVER_ARGS`.
+
+To use the included echo server, set these assistant fields while running the API
+from the repository root:
+
+```json
+{
+  "mcp_command": "uv",
+  "mcp_args": ["run", "src/mcp/servers/example.py"]
+}
 ```
-Then run the migrations
 
-```sh
-alembic upgrade head
+The server declares its own dependencies through inline script metadata. Only
+configure trusted MCP commands: they start local subprocesses with the API
+process's privileges.
+
+## Scope and limitations
+
+This is a starter project. The current routes have no authentication or tenant
+authorization, and CORS is configured for development. Add those application
+boundaries and restrict tool configuration before exposing the service to
+untrusted clients. PostgreSQL calls use synchronous SQLModel sessions.
+
+The repository contains no Compose configuration, so the quick start uses
+`docker run`. A Dockerfile is included, but database provisioning and migrations
+are separate steps. No license file is currently included.
+
+## Development
+
+```bash
+uv run pytest tests/test_llm_streaming.py
+uv run pytest tests/test_mcp_tool.py
 ```
 
-5️⃣ **Start the FastAPI application**
-```sh
-uvicorn app.main:app --reload
-```
-
-6️⃣ **Access the API documentation**
-FastAPI provides interactive API documentation available at:
-- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Redoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
-
----
-
-## 📌 Contributing
-
-Contributions are welcome! Feel free to fork this repo, create a feature branch, and submit a pull request.
-
----
-
-## 🏆 Credits
-
-Developed and maintained by **GonzaData**.
-
----
-
-## 📜 License
-
-This project is licensed under the **MIT License**. See the `LICENSE` file for details.
-
----
+The streaming tests mock OpenAI. MCP tests check tool schema conversion; API tests
+use Testcontainers and need Docker plus the settings required at app import.
+Inspect those fixtures before running the full suite. The repository currently
+has no GitHub Actions CI workflow.
